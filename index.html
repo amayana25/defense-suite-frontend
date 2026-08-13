@@ -103,10 +103,36 @@
 </head>
 <body>
 
+<!-- ÉCRAN DE CONSENTEMENT — bloque l'accès tant que les conditions
+     d'utilisation ne sont pas acceptées. Le consentement est mémorisé
+     localement (localStorage) pour ne pas redemander à chaque visite,
+     mais est revalidé si la version des conditions change. -->
+<div id="consent-overlay" style="position:fixed; inset:0; background:rgba(5,7,13,0.92); backdrop-filter:blur(4px); z-index:9999; display:flex; align-items:center; justify-content:center; padding:20px;">
+  <div style="max-width:480px; width:100%; background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:28px 24px; max-height:85vh; overflow-y:auto;">
+    <h2 style="margin:0 0 4px; font-size:20px;">🛡️ Bienvenue sur Defense Suite</h2>
+    <p style="color:var(--muted); font-size:13px; line-height:1.6; margin:12px 0;">
+      Defense Suite est une plateforme de cybersécurité défensive : elle analyse des URL pour détecter le phishing, examine des fichiers à la recherche de signaux malveillants, effectue des scans réseau limités, vérifie l'authenticité d'adresses email et la compromission de mots de passe. Les résultats sont fournis à titre indicatif — ce n'est pas un audit de sécurité certifié.
+    </p>
+    <p style="color:var(--muted); font-size:13px; line-height:1.6; margin:12px 0;">
+      L'utilisation de la Plateforme suppose que vous n'analysez que des systèmes vous appartenant ou pour lesquels vous disposez d'une autorisation, et que vous avez pris connaissance des conditions d'utilisation ci-dessous.
+    </p>
+    <div class="checkbox-row" style="margin:16px 0;">
+      <input type="checkbox" id="consent-checkbox">
+      <label for="consent-checkbox">J'ai lu et j'accepte les <a href="legal_disclaimer.pdf" target="_blank" rel="noopener" style="color:var(--accent);">conditions d'utilisation et mentions légales</a>.</label>
+    </div>
+    <button class="primary" id="consent-accept-btn" onclick="acceptConsent()" disabled style="width:100%; opacity:0.5; cursor:not-allowed;">Accepter et accéder à la plateforme</button>
+    <p style="color:var(--muted); font-size:11px; margin-top:14px; text-align:center;">© 2026 Emessiene Amayana Patrick — Tous droits réservés</p>
+  </div>
+</div>
+
 <header>
   <h1>🛡️ Defense Suite</h1>
   <p>Plateforme de détection multi-fonctions — anti-phishing · fichiers · réseau · fuites de données</p>
 </header>
+
+<div class="intro-text" style="max-width:900px; margin:0 auto; padding:16px 16px 0; color:var(--muted); font-size:13px; line-height:1.6;">
+  Defense Suite centralise plusieurs outils de cybersécurité défensive en une seule interface : détection de phishing et de typosquatting, analyse de fichiers suspects, scan léger de ports réseau (avec vérification de propriété obligatoire pour les cibles publiques), vérification d'authenticité d'emails et de mots de passe compromis, et recherche d'informations sur une adresse IP. Conçue par Emessiene Amayana Patrick pour aider particuliers et professionnels à évaluer rapidement un risque avant d'agir.
+</div>
 
 <div class="tabs">
   <button class="tab-btn active" data-tab="url">🔗 URL / Phishing</button>
@@ -127,6 +153,7 @@
       <div id="url-result"></div>
     </div>
   </section>
+
 
   <!-- MODULE FILE -->
   <section class="module" id="module-file">
@@ -162,6 +189,14 @@
         <button class="secondary" onclick="checkVerification()" style="margin-top:10px;">J'ai publié la preuve — vérifier</button>
         <div id="verify-status"></div>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>Recherche IP (OSINT)</h2>
+      <p class="desc">Identifie le propriétaire d'une adresse IP : FAI/organisation, ASN, localisation, et détection VPN/proxy/Tor/hébergeur — via ipwhois.net. Aucune vérification de propriété requise, c'est une simple recherche d'information publique.</p>
+      <input type="text" id="ip-intel-input" placeholder="ex: 8.8.8.8">
+      <button class="primary" onclick="lookupIp()">Rechercher</button>
+      <div id="ip-intel-result"></div>
     </div>
   </section>
 
@@ -200,6 +235,36 @@
 <script>
 const API = "https://api-production-6a893.up.railway.app";
 
+// --- Écran de consentement ---
+// CONSENT_VERSION : incrémenter cette valeur si les conditions d'utilisation
+// changent significativement, pour forcer une nouvelle acceptation.
+const CONSENT_VERSION = "1.0";
+const CONSENT_KEY = "defense-suite-consent";
+
+function initConsent() {
+  const overlay = document.getElementById("consent-overlay");
+  let stored = null;
+  try { stored = localStorage.getItem(CONSENT_KEY); } catch (e) { /* stockage indisponible */ }
+  if (stored === CONSENT_VERSION) {
+    overlay.style.display = "none";
+    return;
+  }
+  overlay.style.display = "flex";
+  document.getElementById("consent-checkbox").addEventListener("change", (e) => {
+    const btn = document.getElementById("consent-accept-btn");
+    btn.disabled = !e.target.checked;
+    btn.style.opacity = e.target.checked ? "1" : "0.5";
+    btn.style.cursor = e.target.checked ? "pointer" : "not-allowed";
+  });
+}
+
+function acceptConsent() {
+  try { localStorage.setItem(CONSENT_KEY, CONSENT_VERSION); } catch (e) { /* stockage indisponible, on laisse passer */ }
+  document.getElementById("consent-overlay").style.display = "none";
+}
+
+initConsent();
+
 document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
@@ -218,6 +283,20 @@ function scoreColor(score) {
   if (score >= 60) return "#dc2626";
   if (score >= 30) return "#d97706";
   return "#16a34a";
+}
+
+function renderIpIntel(intel) {
+  if (!intel) return "";
+  const flags = [];
+  if (intel.is_vpn) flags.push("VPN");
+  if (intel.is_proxy) flags.push("Proxy");
+  if (intel.is_tor) flags.push("Tor");
+  if (intel.is_datacenter) flags.push("Datacenter/Hébergeur");
+  const flagsHtml = flags.length ? `<span style="color:var(--warn);font-weight:600;"> · ${flags.join(", ")}</span>` : "";
+  return `
+    <div class="meta" style="margin-top:8px; padding:8px; background:rgba(255,255,255,0.03); border-radius:6px;">
+      🌐 IP ${intel.ip} — ${intel.isp || intel.org || "FAI inconnu"}${intel.asn ? ` (${intel.asn})` : ""} · ${intel.city ? intel.city + ", " : ""}${intel.country || "pays inconnu"}${flagsHtml}
+    </div>`;
 }
 
 async function analyzeUrl() {
@@ -240,6 +319,7 @@ async function analyzeUrl() {
         <div class="meta">
           Hôte : ${data.hostname}${data.domain_age_days !== null ? ` · Domaine créé il y a ${data.domain_age_days} jours` : ""}
         </div>
+        ${renderIpIntel(data.ip_intelligence)}
         <button class="secondary" onclick="downloadReport('url')">📄 Exporter en PDF</button>
       </div>`;
   } catch (e) {
@@ -268,6 +348,37 @@ async function analyzeFile() {
           SHA256 : ${data.hashes.sha256}
         </div>
         <button class="secondary" onclick="downloadReport('file')">📄 Exporter en PDF</button>
+      </div>`;
+  } catch (e) {
+    box.innerHTML = `<div class="result">Erreur : ${e.message}</div>`;
+  }
+}
+
+async function lookupIp() {
+  const ip = document.getElementById("ip-intel-input").value.trim();
+  const box = document.getElementById("ip-intel-result");
+  if (!ip) return;
+  box.innerHTML = '<div class="loading">Recherche en cours…</div>';
+  try {
+    const r = await fetch(API + "/api/ip-intel", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ip})
+    });
+    const data = await r.json();
+    if (data.error) { box.innerHTML = `<div class="result">${data.error}</div>`; return; }
+    const flags = [];
+    if (data.is_vpn) flags.push("VPN");
+    if (data.is_proxy) flags.push("Proxy");
+    if (data.is_tor) flags.push("Tor");
+    if (data.is_datacenter) flags.push("Datacenter/Hébergeur");
+    box.innerHTML = `
+      <div class="result">
+        <div class="meta" style="font-size:14px; line-height:1.8;">
+          <strong>${data.isp || data.org || "FAI inconnu"}</strong>${data.asn ? ` (${data.asn})` : ""}<br>
+          📍 ${data.city ? data.city + ", " : ""}${data.region ? data.region + ", " : ""}${data.country || "pays inconnu"}<br>
+          ${data.connection_type ? `Type de connexion : ${data.connection_type}<br>` : ""}
+          ${flags.length ? `<span style="color:var(--warn);font-weight:600;">⚠️ ${flags.join(", ")}</span>` : "Aucun signal VPN/proxy/Tor détecté."}
+        </div>
       </div>`;
   } catch (e) {
     box.innerHTML = `<div class="result">Erreur : ${e.message}</div>`;
@@ -304,6 +415,7 @@ async function scanNetwork() {
           ${data.open_ports.length ? data.open_ports.map(p => `<span class="port-tag">${p.port} — ${p.service}</span>`).join("") : "Aucun port ouvert détecté parmi les ports communs."}
         </div>
         ${data.warnings.length ? `<ul class="reasons">${data.warnings.map(w => `<li>${w}</li>`).join("")}</ul>` : ""}
+        ${renderIpIntel(data.ip_intelligence)}
         <button class="secondary" onclick="downloadReport('network')">📄 Exporter en PDF</button>
       </div>`;
   } catch (e) {
